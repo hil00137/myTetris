@@ -1,9 +1,13 @@
 package ssu.rubicom.btetris;
 
+import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
@@ -27,6 +31,7 @@ public class MainActivity extends AppCompatActivity {
     private Timer t;
     private TimerHandler job;
     private Tetris.TetrisState savedState;
+    private SharedPreferences preferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,12 +66,14 @@ public class MainActivity extends AppCompatActivity {
         downArrowBtn.setOnClickListener(OnClickListener);
         dropBtn.setOnClickListener(OnClickListener);
 
+
         setButtonsState(false);
     }
     private void setButtonsState(boolean flag) {
         pauseBtn.setEnabled(flag);
         modeBtn.setEnabled(false);
         reservedBtn.setEnabled(false);
+        settingBtn.setEnabled(!flag);
 
         upArrowBtn.setEnabled(flag);
         leftArrowBtn.setEnabled(flag);
@@ -86,8 +93,8 @@ public class MainActivity extends AppCompatActivity {
                         gameStarted = true;
                         setButtonsState(true);
                         startBtn.setText("Q"); // 'Q' means Quit
-                        settingBtn.setEnabled(false);
                         enableTimer();
+                        saveGameState(gameStarted);
                         Toast.makeText(MainActivity.this, "Game Started!", Toast.LENGTH_SHORT).show();
                         try {
                             random = new Random();
@@ -111,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
                         setButtonsState(false);
                         disableTimer();
                         startBtn.setText("N"); // 'N' means New Game.
+                        saveGameState(gameStarted);
                         Toast.makeText(MainActivity.this, "Game Over!", Toast.LENGTH_SHORT).show();
                     }
                     return;
@@ -140,7 +148,7 @@ public class MainActivity extends AppCompatActivity {
                         gameStarted = false;
                         setButtonsState(false);
                         startBtn.setText("N");
-                        settingBtn.setEnabled(true);
+                        disableTimer();
                         Toast.makeText(MainActivity.this, "Game Over!", Toast.LENGTH_SHORT).show();
                     }
                 }
@@ -152,13 +160,14 @@ public class MainActivity extends AppCompatActivity {
     };
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode,Intent data) {
         if(requestCode == 1000 && resultCode == RESULT_OK){
             final String IP = data.getStringExtra("IP");
             final String port = data.getStringExtra("port");
             Toast.makeText(this, IP+":"+port+" 세팅완료", Toast.LENGTH_SHORT).show();
         }
         else if(requestCode == 1000 && resultCode==RESULT_CANCELED){
+            disableTimer();
             Toast.makeText(this, "IP 세팅이 취소 되었습니다.", Toast.LENGTH_SHORT).show();
         }
         else{
@@ -167,19 +176,62 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        preferences = getSharedPreferences("cache", Activity.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putInt("state",2);
+        editor.putBoolean("gameStarted",false);
+        editor.commit();
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
-        if(state == Tetris.TetrisState.Running){
-            disableTimer();
-            savedState = Tetris.TetrisState.Running;
+        disableTimer();
+        int save = 2;
+        savedState = state;
+        switch (savedState){
+            case Running:
+                save = 0;
+                break;
+            case NewBlock:
+                save = 1;
+                break;
+            case Finished:
+                save = 2;
+                break;
         }
+        preferences = getSharedPreferences("cache", Activity.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putInt("state",save);
+        editor.commit();
+
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if(savedState == Tetris.TetrisState.Running){
-            enableTimer();
+        preferences = getSharedPreferences("cache", Activity.MODE_PRIVATE);
+
+        int save = preferences.getInt("state",2);
+        switch (save){
+            case 0:
+                savedState = Tetris.TetrisState.Running;
+                break;
+            case 1:
+                savedState = Tetris.TetrisState.NewBlock;
+                break;
+            case 2:
+                savedState = Tetris.TetrisState.Finished;
+                break;
+        }
+        if(preferences.getBoolean("gameStarted",false)) {
+            if (savedState == Tetris.TetrisState.Running) {
+                enableTimer();
+            } else if (savedState == Tetris.TetrisState.Finished) {
+                disableTimer();
+            }
         }
     }
 
@@ -187,28 +239,30 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void run() {
-            try{
-                state = myTetModel.accept('s');
-                myTetView.accept(myTetModel.board.oScreen);
-                if (state == Tetris.TetrisState.NewBlock){
-                    currBlk = nextBlk;
-                    nextBlk = (char) ('0' + random.nextInt(myTetModel.board.nBlockTypes));
-                    state = myTetModel.accept(currBlk);
+            if(state != Tetris.TetrisState.Finished){
+                try{
+                    state = myTetModel.accept('s');
                     myTetView.accept(myTetModel.board.oScreen);
-                    myBlkView.accept(myTetModel.getBlock(nextBlk));
-                    myBlkView.invalidate();
-                    if (state == Tetris.TetrisState.Finished) {
-                        gameStarted = false;
-                        setButtonsState(false);
-                        startBtn.setText("N");
-                        Toast.makeText(MainActivity.this, "Game Over!", Toast.LENGTH_SHORT).show();
+                    if (state == Tetris.TetrisState.NewBlock){
+                        currBlk = nextBlk;
+                        nextBlk = (char) ('0' + random.nextInt(myTetModel.board.nBlockTypes));
+                        state = myTetModel.accept(currBlk);
+                        myTetView.accept(myTetModel.board.oScreen);
+                        myBlkView.accept(myTetModel.getBlock(nextBlk));
+                        myBlkView.invalidate();
+                        if (state == Tetris.TetrisState.Finished) {
+                            gameStarted = false;
+                            setButtonsState(false);
+                            startBtn.setText("N");
+                            saveGameState(gameStarted);
+                            Toast.makeText(MainActivity.this, "Game Over!", Toast.LENGTH_SHORT).show();
+                        }
                     }
+                    myTetView.invalidate();
+                }catch (Exception e){
+                    e.printStackTrace();
                 }
-                myTetView.invalidate();
-            }catch (Exception e){
-                e.printStackTrace();
             }
-
 
         }
     }
@@ -220,6 +274,13 @@ public class MainActivity extends AppCompatActivity {
     }
     private void disableTimer(){
         t.cancel();
+    }
+
+    private void saveGameState(boolean gameStarted){
+        preferences = getSharedPreferences("cache", Activity.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putBoolean("gameStarted",gameStarted);
+        editor.commit();
     }
 
 }

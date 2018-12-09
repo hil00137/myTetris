@@ -140,7 +140,7 @@ public class Tetris {
             currBlk2 = currBlk.int2bool();
             tempBlk2 = tempBlk2.add(currBlk2);
             oScreen.paste(iScreen, 0, 0);
-            oScreen.paste(tempBlk, top, left); System.out.println();
+            oScreen.paste(tempBlk, top, left);
 
             if (tempBlk2.anyGreaterThan(1)) {
                 state = TetrisState.Finished;	// System.out.println("Game Over!");
